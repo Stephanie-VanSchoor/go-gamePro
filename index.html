@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jeu de Go</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(135deg, #2c1810 0%, #4a2c1a 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: #f0e6d2;
+  }
+
+  h1 {
+    margin-bottom: 15px;
+    font-size: 1.8em;
+    letter-spacing: 3px;
+    color: #f5deb3;
+    text-shadow: 2px 2px 4px #000;
+  }
+
+  .infos {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .joueur {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 25px;
+    background: rgba(0,0,0,0.3);
+    border: 2px solid transparent;
+    transition: all 0.3s;
+  }
+
+  .joueur.actif {
+    border-color: #ffd700;
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+  }
+
+  .pierre-mini {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    box-shadow: 1px 2px 3px rgba(0,0,0,0.5);
+  }
+
+  .pierre-mini.noire { background: radial-gradient(circle at 35% 30%, #666, #000); }
+  .pierre-mini.blanche { background: radial-gradient(circle at 35% 30%, #fff, #bbb); }
+
+  #plateau {
+    background: #dcb35c;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6), inset 0 0 40px rgba(139,90,20,0.3);
+    cursor: pointer;
+    display: block;
+    max-width: 90vmin;
+    height: auto;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .boutons {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  button {
+    padding: 10px 22px;
+    font-size: 0.95em;
+    border: none;
+    border-radius: 8px;
+    background: #8b5a2b;
+    color: #f5deb3;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+    box-shadow: 0 3px 0 #5a3a1b;
+  }
+
+  button:hover { background: #a06a35; transform: translateY(-1px); }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #5a3a1b; }
+
+  #message {
+    margin-top: 12px;
+    min-height: 24px;
+    font-size: 1.1em;
+    color: #ffd700;
+    text-align: center;
+    font-weight: 500;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+  }
+
+  #score {
+    margin-top: 12px;
+    font-size: 0.9em;
+    color: #d0c0a0;
+    text-align: center;
+    padding: 10px 16px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🎴 JEU DE GO</h1>
+
+<div class="infos">
+  <div class="joueur actif" id="jNoir">
+    <div class="pierre-mini noire"></div>
+    <span>Noir — <b id="capNoir">0</b> captures</span>
+  </div>
+  <div class="joueur" id="jBlanc">
+    <div class="pierre-mini blanche"></div>
+    <span>Blanc — <b id="capBlanc">0</b> captures</span>
+  </div>
+</div>
+
+<canvas id="plateau" width="540" height="540"></canvas>
+
+<div class="boutons">
+  <button onclick="passer()">⏭️ Passer</button>
+  <button onclick="nouvellePartie()">🔄 Nouvelle partie</button>
+</div>
+
+<div id="message">À Noir de jouer</div>
+<div id="score"></div>
+
+<script>
+// ====== Configuration ======
+const TAILLE = 9;
+const MARGE = 40;
+const ESPACE = (540 - 2 * MARGE) / (TAILLE - 1);
+
+const VIDE = 0, NOIR = 1, BLANC = 2;
+
+const canvas = document.getElementById('plateau');
+const ctx = canvas.getContext('2d');
+
+let grille, tour, passes, captures, partieFinie, dernierCoup, historique;
+
+// ====== Initialisation ======
+function init() {
+  grille = Array.from({ length: TAILLE }, () => Array(TAILLE).fill(VIDE));
+  tour = NOIR;
+  passes = 0;
+  captures = { [NOIR]: 0, [BLANC]: 0 };
+  partieFinie = false;
+  dernierCoup = null;
+  historique = [];
+  document.getElementById('score').textContent = '';
+  mettreAJourInfos();
+  dessiner();
+  setMessage("À Noir de jouer");
+}
+
+// ====== Dessin ======
+function dessiner() {
+  ctx.fillStyle = '#dcb35c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = '#3a2410';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < TAILLE; i++) {
+    const p = MARGE + i * ESPACE;
+    ctx.beginPath();
+    ctx.moveTo(MARGE, p); ctx.lineTo(canvas.width - MARGE, p); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(p, MARGE); ctx.lineTo(p, canvas.height - MARGE); ctx.stroke();
+  }
+
+  const hoshi = TAILLE === 9 ? [2, 4, 6] : TAILLE === 13 ? [3, 6, 9] : [3, 9, 15];
+  ctx.fillStyle = '#3a2410';
+  for (const x of hoshi) {
+    for (const y of hoshi) {
+      ctx.beginPath();
+      ctx.arc(MARGE + x * ESPACE, MARGE + y * ESPACE, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.fillStyle = '#3a2410';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < TAILLE; i++) {
+    ctx.fillText(String.fromCharCode(65 + i), MARGE + i * ESPACE, 18);
+    ctx.fillText(TAILLE - i, 18, MARGE + i * ESPACE);
+  }
+
+  for (let y = 0; y < TAILLE; y++) {
+    for (let x = 0; x < TAILLE; x++) {
+      if (grille[y][x] !== VIDE) {
+        dessinerPierre(x, y, grille[y][x]);
+      }
+    }
+  }
+
+  if (dernierCoup) {
+    const [x, y] = dernierCoup;
+    const cx = MARGE + x * ESPACE;
+    const cy = MARGE + y * ESPACE;
+    ctx.strokeStyle = grille[y][x] === NOIR ? '#ffd700' : '#ff4444';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function dessinerPierre(x, y, couleur) {
+  const cx = MARGE + x * ESPACE;
+  const cy = MARGE + y * ESPACE;
+  const r = ESPACE * 0.45;
+
+  ctx.beginPath();
+  ctx.arc(cx + 2, cy + 2, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fill();
+
+  const grad = ctx.createRadialGradient(
+    cx - r * 0.35, cy - r * 0.35, r * 0.1,
+    cx, cy, r
+  );
+  if (couleur === NOIR) {
+    grad.addColorStop(0, '#666');
+    grad.addColorStop(1, '#000');
+  } else {
+    grad.addColorStop(0, '#fff');
+    grad.addColorStop(1, '#bbb');
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = couleur === NOIR ? '#000' : '#999';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// ====== Logique du jeu ======
+function voisins(x, y) {
+  const res = [];
+  if (x > 0) res.push([x - 1, y]);
+  if (x < TAILLE - 1) res.push([x + 1, y]);
+  if (y > 0) res.push([x, y - 1]);
+  if (y < TAILLE - 1) res.push([x, y + 1]);
+  return res;
+}
+
+function groupe(x, y) {
+  const couleur = grille[y][x];
+  if (couleur === VIDE) return { pierres: [], libertes: [] };
+  const pierres = new Set();
+  const libertes = new Set();
+  const pile = [[x, y]];
+  const cle = (a, b) => a + ',' + b;
+
+  while (pile.length) {
+    const [cx, cy] = pile.pop();
+    const k = cle(cx, cy);
+    if (pierres.has(k)) continue;
+    pierres.add(k);
+    for (const [nx, ny] of voisins(cx, cy)) {
+      if (grille[ny][nx] === VIDE) libertes.add(cle(nx, ny));
+      else if (grille[ny][nx] === couleur && !pierres.has(cle(nx, ny))) {
+        pile.push([nx, ny]);
+      }
+    }
+  }
+  return { pierres, libertes };
+}
+
+function capturer(couleur) {
+  const adversaire = couleur === NOIR ? BLANC : NOIR;
+  let nb = 0;
+  for (let y = 0; y < TAILLE; y++) {
+    for (let x = 0; x < TAILLE; x++) {
+      if (grille[y][x] === adversaire) {
+        const g = groupe(x, y);
+        if (g.libertes.size === 0) {
+          for (const k of g.pierres) {
+            const [px, py] = k.split(',').map(Number);
+            grille[py][px] = VIDE;
+          }
+          nb += g.pierres.size;
+        }
+      }
+    }
+  }
+  return nb;
+}
+
+function copierGrille() {
+  return grille.map(l => l.slice());
+}
+
+function coupValide(x, y, couleur) {
+  if (x < 0 || x >= TAILLE || y < 0 || y >= TAILLE) return "Hors plateau";
+  if (grille[y][x] !== VIDE) return "Case occupée";
+
+  const sauvegarde = copierGrille();
+
+  grille[y][x] = couleur;
+  capturer(couleur);
+  const libertes = groupe(x, y).libertes.size;
+  const etatApres = copierGrille();
+
+  for (let yy = 0; yy < TAILLE; yy++) {
+    for (let xx = 0; xx < TAILLE; xx++) {
+      grille[yy][xx] = sauvegarde[yy][xx];
+    }
+  }
+
+  if (libertes === 0) return "Suicide interdit";
+
+  if (historique.length > 0) {
+    const precedente = historique[historique.length - 1];
+    if (egales(etatApres, precedente)) return "Règle du ko";
+  }
+  return null;
+}
+
+function egales(a, b) {
+  for (let y = 0; y < TAILLE; y++)
+    for (let x = 0; x < TAILLE; x++)
+      if (a[y][x] !== b[y][x]) return false;
+  return true;
+}
+
+function jouer(x, y) {
+  if (partieFinie) return;
+
+  const erreur = coupValide(x, y, tour);
+  if (erreur) {
+    setMessage("❌ " + erreur);
+    return;
+  }
+
+  historique.push(copierGrille());
+
+  grille[y][x] = tour;
+  const nb = capturer(tour);
+  captures[tour] += nb;
+  dernierCoup = [x, y];
+  passes = 0;
+
+  tour = tour === NOIR ? BLANC : NOIR;
+
+  mettreAJourInfos();
+  dessiner();
+
+  if (nb > 0) {
+    setMessage(`✨ ${nb} pierre(s) capturée(s) ! À ${tour === NOIR ? 'Noir' : 'Blanc'}.`);
+  }
+}
+
+function passer() {
+  if (partieFinie) return;
+  passes++;
+  dernierCoup = null;
+  if (passes >= 2) {
+    finPartie();
+    return;
+  }
+  tour = tour === NOIR ? BLANC : NOIR;
+  mettreAJourInfos();
+  dessiner();
+  setMessage(`${tour === NOIR ? 'Noir' : 'Blanc'} a passé. À l'autre joueur.`);
+}
+
+function finPartie() {
+  partieFinie = true;
+  const territoire = compterTerritoire();
+  const scoreNoir = captures[NOIR] + territoire[NOIR];
+  const scoreBlanc = captures[BLANC] + territoire[BLANC];
+
+  let gagnant, ecart;
+  if (scoreNoir > scoreBlanc) {
+    gagnant = "⚫ NOIR GAGNE";
+    ecart = `+${scoreNoir - scoreBlanc}`;
+  } else if (scoreBlanc > scoreNoir) {
+    gagnant = "⚪ BLANC GAGNE";
+    ecart = `+${scoreBlanc - scoreNoir}`;
+  } else {
+    gagnant = "🤝 MATCH NUL";
+    ecart = "0";
+  }
+
+  const texte =
+    `🏁 <b>${gagnant}</b> (écart : ${ecart})<br>` +
+    `⚫ Noir : ${captures[NOIR]} cap. + ${territoire[NOIR]} terr. = <b>${scoreNoir}</b> &nbsp;|&nbsp; ` +
+    `⚪ Blanc : ${captures[BLANC]} cap. + ${territoire[BLANC]} terr. = <b>${scoreBlanc}</b>`;
+
+  document.getElementById('score').innerHTML = texte;
+  setMessage(`🏁 Partie terminée — ${gagnant}`);
+  mettreAJourInfos();
+  dessiner();
+}
+
+function compterTerritoire() {
+  const visite = Array.from({ length: TAILLE }, () => Array(TAILLE).fill(false));
+  const terr = { [NOIR]: 0, [BLANC]: 0 };
+
+  for (let y = 0; y < TAILLE; y++) {
+    for (let x = 0; x < TAILLE; x++) {
+      if (grille[y][x] === VIDE && !visite[y][x]) {
+        const zone = [];
+        const bords = new Set();
+        const pile = [[x, y]];
+        while (pile.length) {
+          const [cx, cy] = pile.pop();
+          if (visite[cy][cx]) continue;
+          visite[cy][cx] = true;
+          zone.push([cx, cy]);
+          for (const [nx, ny] of voisins(cx, cy)) {
+            if (grille[ny][nx] === VIDE && !visite[ny][nx]) pile.push([nx, ny]);
+            else if (grille[ny][nx] !== VIDE) bords.add(grille[ny][nx]);
+          }
+        }
+        if (bords.size === 1) {
+          const couleur = [...bords][0];
+          terr[couleur] += zone.length;
+        }
+      }
+    }
+  }
+  return terr;
+}
+
+// ====== Interaction ======
+canvas.addEventListener('click', (e) => {
+  if (partieFinie) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+
+  const x = Math.round((mx - MARGE) / ESPACE);
+  const y = Math.round((my - MARGE) / ESPACE);
+
+  if (x < 0 || x >= TAILLE || y < 0 || y >= TAILLE) return;
+  const dx = mx - (MARGE + x * ESPACE);
+  const dy = my - (MARGE + y * ESPACE);
+  if (Math.hypot(dx, dy) > ESPACE * 0.6) return;
+
+  jouer(x, y);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && historique.length > 0 && !partieFinie) {
+    const precedent = historique.pop();
+    for (let y = 0; y < TAILLE; y++)
+      for (let x = 0; x < TAILLE; x++)
+        grille[y][x] = precedent[y][x];
+    tour = tour === NOIR ? BLANC : NOIR;
+    dernierCoup = null;
+    mettreAJourInfos();
+    dessiner();
+    setMessage("↩️ Coup annulé");
+  }
+});
+
+function mettreAJourInfos() {
+  document.getElementById('capNoir').textContent = captures[NOIR];
+  document.getElementById('capBlanc').textContent = captures[BLANC];
+  document.getElementById('jNoir').classList.toggle('actif', tour === NOIR && !partieFinie);
+  document.getElementById('jBlanc').classList.toggle('actif', tour === BLANC && !partieFinie);
+
+  if (!partieFinie) {
+    const terr = compterTerritoire();
+    const scoreNoir = captures[NOIR] + terr[NOIR];
+    const scoreBlanc = captures[BLANC] + terr[BLANC];
+
+    document.getElementById('score').innerHTML =
+      `📊 <b>Score en direct</b> — ` +
+      `⚫ Noir : <b>${scoreNoir}</b> (${captures[NOIR]} cap. + ${terr[NOIR]} terr.) ` +
+      `&nbsp;|&nbsp; ` +
+      `⚪ Blanc : <b>${scoreBlanc}</b> (${captures[BLANC]} cap. + ${terr[BLANC]} terr.)`;
+  }
+
+  const msgActuel = document.getElementById('message').textContent;
+  const estSpecial = msgActuel.includes('❌') ||
+                     msgActuel.includes('✨') ||
+                     msgActuel.includes('🏁') ||
+                     msgActuel.includes('passé') ||
+                     msgActuel.includes('annulé');
+
+  if (!partieFinie && !estSpecial) {
+    setMessage(`À ${tour === NOIR ? 'Noir' : 'Blanc'} de jouer`);
+  }
+}
+
+function setMessage(msg) {
+  document.getElementById('message').textContent = msg;
+}
+
+function nouvellePartie() {
+  init();
+}
+
+// ====== Démarrage ======
+init();
+</script>
+
+<!-- ✅ Script Social Bar Adsterra -->
+<script src="https://pl31532967.profitableratecpmnetwork.com/91/f6/bf/91f6bf3c9274c740faec209b9a38d8e7.js"></script>
+
+</body>
+</html>
